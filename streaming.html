@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>Basic Video Demo</title>
+  </head>
+
+  <body>
+    <!-- Present video UI here -->
+    <canvas id="dst" width="960" height="720"></canvas>
+
+    <script type="text/javascript">
+      var timestamp = 0;
+      const cnv = document.getElementById("dst");
+      const ctx = cnv.getContext("2d"); 
+
+      const handleFrame = (frame) => {
+        ctx.drawImage(frame, 0, 0, frame.displayWidth, frame.displayHeight, 0, 0, cnv.width, cnv.height);
+        frame.close();
+      };
+      const videoDecoder = new VideoDecoder({
+        output: handleFrame,
+        error: (e) => console.error(e),
+      });
+      videoDecoder.configure({
+        codec: "avc1.42001f",
+        avc: { format: "annexb" },
+        hardwareAcceleration: "prefer-hardware",
+        optimizeForLatency: true
+      })
+
+      const socket = new WebSocket('ws://localhost:8081');
+
+      socket.addEventListener('open', function (event) {
+        console.log('Connection Opened');
+      });
+      var hasKeyframe = false;
+      socket.addEventListener('message', async function (event) {
+        console.log('Frame Received');
+        const chunkData = await event.data.arrayBuffer()
+        const chunkBytesView = new DataView(chunkData)
+        const naluType = chunkBytesView.getUint8(4) & 0x1F;
+        const isKey = naluType === 7;
+        if (hasKeyframe || isKey) {
+          hasKeyframe = true;
+          const chunk = new EncodedVideoChunk({
+            type: isKey ? "key" : "delta",
+            timestamp: timestamp += 33000,
+            duration: 33000,
+            data: chunkData
+          });
+          videoDecoder.decode(chunk);
+        }
+        // Use frames received in this callback for presentation to user
+      });
+    </script>
+  </body>
+</html>
